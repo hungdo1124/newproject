@@ -44,12 +44,20 @@ const writeFile = async (file, data) => {
 const JWT_SECRET = process.env.JWT_SECRET || "Mat_Khau_Bi_Mat_Tam_Thoi_123";
 
 const transporter = nodemailer.createTransport({
-    service: 'gmail', // Dùng lại service 'gmail' cho đơn giản
+    host: "smtp.googlemail.com", // Đổi sang host này để tránh bị chặn
+    port: 465,
+    secure: true,
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
     },
-    family: 4 
+    // Cấu hình mạng để kết nối "lì lợm" hơn
+    tls: {
+        rejectUnauthorized: false
+    },
+    connectionTimeout: 10000, // Chờ 10 giây (mặc định là 2s)
+    greetingTimeout: 10000,
+    socketTimeout: 10000
 });
 
 const sendOTP = async (email, otp) => {
