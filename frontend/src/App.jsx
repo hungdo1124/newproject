@@ -138,7 +138,8 @@ const TermsModal = ({ onClose }) => (
     </div> 
 );
 
-const ResendTimer = ({ onResend }) => { const [timeLeft, setTimeLeft] = useState(60); useEffect(() => { if (timeLeft > 0) { const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000); return () => clearTimeout(timer); } }, [timeLeft]); const handleResend = () => { setTimeLeft(60); onResend(); }; return <div className="mt-4 text-center text-sm">{timeLeft > 0 ? <span className="text-gray-500">Gửi lại sau <span className="font-bold text-blue-600">{timeLeft}s</span></span> : <button type="button" onClick={handleResend} className="text-blue-600 hover:underline font-medium">Gửi lại OTP</button>}</div>; };
+const ResendTimer = ({ onResend }) => { const [timeLeft, setTimeLeft] = useState(60); useEffect(() => { if (timeLeft > 0) { const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000); return () => clearTimeout(timer); } }, [timeLeft]); 
+const handleResend = () => { setTimeLeft(60); onResend(); }; return <div className="mt-4 text-center text-sm">{timeLeft > 0 ? <span className="text-gray-500">Gửi lại sau <span className="font-bold text-blue-600">{timeLeft}s</span></span> : <button type="button" onClick={handleResend} className="text-blue-600 hover:underline font-medium">Gửi lại OTP</button>}</div>; };
 
 // --- AUTH FORM ---
 const AuthForm = ({ type, formData, setFormData, loading, errors, onSubmit, onSwitchMode, darkMode, onOpenTerms, onForgotPassword, otpVerified, onVerifyOtpOnly, onResendOtp }) => {
@@ -313,7 +314,25 @@ const res = await fetch(`${API_URL}/api${endpoint}`, { method, headers, body: bo
   const handleDeletePost = async (id) => { if(!confirm("Xóa?")) return; try { await apiCall(`/posts/${id}`,'DELETE'); showToast("Đã xóa"); fetchPosts(); } catch(e){showToast(e.message,"error")} };
   const openEditModal = (post) => { setEditingPost(post); setShowPostModal(true); };
   const handleVerifyOtpOnly = async (e) => { e.preventDefault(); setLoading(true); setAuthError({}); try { await apiCall('/auth/check-otp', 'POST', { email: authForm.email, otp: authForm.otp }); setOtpVerified(true); } catch (err) { setAuthError({ otp: err.message }); } finally { setLoading(false); } };
-  const handleResendOtp = async () => { setLoading(true); try { const endpoint = currentPage === 'otp' ? '/auth/register' : '/auth/forgot-password'; const body = currentPage === 'otp' ? { name: authForm.name, email: authForm.email, password: authForm.password } : { email: authForm.email }; const data = await apiCall(endpoint, 'POST', body); showToast(data.message); } catch (err) { showToast("Lỗi gửi lại OTP", "error"); } finally { setLoading(false); } };
+  const handleResendOtp = async () => {
+    setLoading(true);
+    try {
+        // Thay vì gọi /auth/register (gây lỗi "Email tồn tại"), 
+        // chúng ta dùng chung endpoint /auth/forgot-password (chỉ cần email)
+        const endpoint = '/auth/forgot-password';
+        const body = { email: authForm.email }; 
+        
+        const data = await apiCall(endpoint, 'POST', body); 
+        
+        // Hiển thị thông báo sau khi gửi lại thành công
+        showToast(data.message || "Đã gửi lại OTP thành công! Kiểm tra email.", "success"); 
+    } catch (err) { 
+        // Bắt lỗi cụ thể hơn
+        showToast(err.message || "Lỗi gửi lại OTP. Vui lòng thử lại sau.", "error"); 
+    } finally { 
+        setLoading(false); 
+    } 
+};
   const handleAuthSubmit = async (e) => { e.preventDefault(); setLoading(true); setAuthError({}); if ((currentPage === 'register' || (currentPage === 'reset' && otpVerified)) && authForm.password !== authForm.confirmPassword) { setAuthError({ confirmPassword: "Mật khẩu không khớp" }); setLoading(false); return; } try { if(currentPage==='register'){ await apiCall('/auth/register','POST',authForm); setCurrentPage('otp'); } else if(currentPage==='otp'){ await apiCall('/auth/verify-otp','POST',{email:authForm.email,otp:authForm.otp}); setCurrentPage('login'); } else if(currentPage==='login'){ const data=await apiCall('/auth/login','POST',{email:authForm.email,password:authForm.password}); setUser(data.user); setCurrentPage('home'); localStorage.setItem('token',data.token); } else if(currentPage==='forgot'){ await apiCall('/auth/forgot-password','POST',{email:authForm.email}); setCurrentPage('reset'); } else if(currentPage==='reset'){ await apiCall('/auth/reset-password','POST',{email:authForm.email,otp:authForm.otp,newPassword:authForm.password}); setCurrentPage('login'); } } catch(e){ const msg = e.message; if (msg.toLowerCase().includes('mật khẩu')) setAuthError({ password: msg }); else if (msg.toLowerCase().includes('otp')) setAuthError({ otp: msg }); else setAuthError({ form: msg }); } finally{ setLoading(false); } };
   const handleLogout = () => { setUser(null); setCurrentPage('home'); localStorage.removeItem('token'); };
   const switchMode = (mode) => { setCurrentPage(mode); setAuthError({}); setAuthForm(prev => ({ ...prev, email: localStorage.getItem('savedEmail') || '', password: '', confirmPassword: '', otp: '', phone: '', address: '', dob: '', gender: 'Nam' })); };
