@@ -44,14 +44,11 @@ const writeFile = async (file, data) => {
 const JWT_SECRET = process.env.JWT_SECRET || "Mat_Khau_Bi_Mat_Tam_Thoi_123";
 
 const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,              // Dùng cổng 465 (SSL)
-    secure: true,           // Bắt buộc để TRUE khi dùng port 465
+    service: 'gmail', // Dùng lại service 'gmail' cho đơn giản
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
     },
-    // Thêm dòng này để server ưu tiên dùng IPv4 (tránh lỗi IPv6 gây timeout)
     family: 4 
 });
 
