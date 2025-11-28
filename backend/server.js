@@ -57,8 +57,8 @@ const sendOTP = async (email, otp) => {
         });
         return { success: true };
     } catch (e) {
-        console.log("Dev OTP (Lỗi mail):", otp);
-        return { success: false, otp: otp };
+    console.error("❌ LỖI GỬI MAIL CHI TIẾT:", e); // <--- In lỗi chi tiết ra
+    return { success: false, otp: otp };
     }
 };
 
