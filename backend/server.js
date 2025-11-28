@@ -5,7 +5,7 @@ const path = require('path');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer'); // Giữ lại nếu dùng Gmail, hoặc bỏ nếu dùng Resend thuần
+const nodemailer = require('nodemailer');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
@@ -41,7 +41,7 @@ const writeFile = async (file, data) => {
 
 const JWT_SECRET = process.env.JWT_SECRET || "Mat_Khau_Bi_Mat_Tam_Thoi_123";
 
-// Cấu hình Mail (Dev Mode: In ra Log để tránh lỗi)
+// Cấu hình Mail (Dev Mode: In ra Log để tránh lỗi nếu chưa config SMTP)
 const sendOTP = async (email, otp) => {
     console.log("\n====================================================");
     console.log(`🔑 DEV MODE - MÃ OTP CỦA [${email}]: ${otp}`);
@@ -66,13 +66,13 @@ const requireAdmin = (req, res, next) => {
     next();
 };
 
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }); // Tăng max request lên xíu cho đỡ bị chặn lúc test
 app.use('/api', limiter);
 
 // --- 5. ROUTES ---
 app.get('/', (req, res) => res.send("✅ Server Full Features Running!"));
 
-// --- AUTH ROUTES ---
+// --- AUTH ROUTES (Giữ nguyên /api) ---
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -157,13 +157,25 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // --- USER ROUTES (Bao gồm Security Code) ---
+// Admin quản lý User (Giữ nguyên /api)
 app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => { const users = await readFile(USERS_FILE); res.json(users); });
 app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => { try { const users = await readFile(USERS_FILE); users.push(req.body); await writeFile(USERS_FILE, users); res.json({message:"OK"}); } catch(e){res.status(500).json({message:"Err"});} });
 app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => { try { let users = await readFile(USERS_FILE); users = users.filter(u => u.id != req.params.id); await writeFile(USERS_FILE, users); res.json({message:"OK"}); } catch(e){res.status(500).json({message:"Err"});} });
-app.put('/api/user/update-profile', authenticateToken, async (req, res) => { try { const users = await readFile(USERS_FILE); const idx = users.findIndex(u=>u.id===req.user.id); if(idx!==-1){ users[idx]={...users[idx], ...req.body}; await writeFile(USERS_FILE, users); res.json({user: users[idx]}); } } catch(e){res.status(500).json({message:"Err"});} });
 
-// 👇👇👇 CÁC ROUTE SECURITY CODE BỊ THIẾU ĐÂY 👇👇👇
-app.put('/api/user/security-code', authenticateToken, async (req, res) => {
+// 👇👇👇 CÁC ROUTE NGƯỜI DÙNG CÁ NHÂN (ĐÃ BỎ /api ĐỂ FIX LỖI 404) 👇👇👇
+app.put('/user/update-profile', authenticateToken, async (req, res) => { 
+    try { 
+        const users = await readFile(USERS_FILE); 
+        const idx = users.findIndex(u=>u.id===req.user.id); 
+        if(idx!==-1){ 
+            users[idx]={...users[idx], ...req.body}; 
+            await writeFile(USERS_FILE, users); 
+            res.json({user: users[idx]}); 
+        } 
+    } catch(e){res.status(500).json({message:"Err"});} 
+});
+
+app.put('/user/security-code', authenticateToken, async (req, res) => {
     try {
         const { securityCode } = req.body;
         if (!securityCode || securityCode.length < 4) return res.status(400).json({ message: "Mã phải >= 4 ký tự" });
@@ -175,7 +187,8 @@ app.put('/api/user/security-code', authenticateToken, async (req, res) => {
     } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
 });
 
-app.post('/api/user/verify-security', authenticateToken, async (req, res) => {
+// ĐÂY LÀ ROUTE SỬA LỖI CHO BẠN
+app.post('/user/verify-security', authenticateToken, async (req, res) => {
     try {
         const { securityCode } = req.body;
         const users = await readFile(USERS_FILE);
@@ -187,7 +200,7 @@ app.post('/api/user/verify-security', authenticateToken, async (req, res) => {
     } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
 });
 
-app.post('/api/user/request-otp', authenticateToken, async (req, res) => {
+app.post('/user/request-otp', authenticateToken, async (req, res) => {
     try {
         const users = await readFile(USERS_FILE);
         const u = users.find(x => x.id === req.user.id);
@@ -199,7 +212,7 @@ app.post('/api/user/request-otp', authenticateToken, async (req, res) => {
     } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
 });
 
-app.put('/api/user/change-password-otp', authenticateToken, async (req, res) => {
+app.put('/user/change-password-otp', authenticateToken, async (req, res) => {
     try {
         const { otp, newPassword } = req.body;
         const users = await readFile(USERS_FILE);
@@ -212,7 +225,7 @@ app.put('/api/user/change-password-otp', authenticateToken, async (req, res) => 
 });
 // 👆👆👆 -------------------------------------- 👆👆👆
 
-// --- POSTS ROUTES ---
+// --- POSTS ROUTES (ĐẦY ĐỦ NHƯ CŨ) ---
 app.get('/api/posts', async (req, res) => { const posts = await readFile(POSTS_FILE); res.json(posts.reverse()); });
 app.get('/api/posts/:id', async (req, res) => { const posts = await readFile(POSTS_FILE); const p = posts.find(x=>x.id==req.params.id); p?res.json(p):res.status(404).json({message:"Not found"}); });
 app.post('/api/posts', authenticateToken, requireAdmin, async (req, res) => { try { const posts = await readFile(POSTS_FILE); posts.push(req.body); await writeFile(POSTS_FILE, posts); res.json({message:"OK"}); } catch(e){res.status(500).json({message:"Err"});} });

@@ -3,3 +3,6 @@ node server.js
 tk admin:
 admin@newsdaily.com
 Admin@123
+git add .
+git commit -m "Fix validate terms checkbox"
+git push
