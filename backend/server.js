@@ -14,8 +14,8 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // --- 1. CẤU HÌNH SERVER ---
-app.set('trust proxy', 1);
-app.use(cors());
+app.set('trust proxy', 1); // Fix lỗi Rate Limit trên Railway
+app.use(cors()); // Fix lỗi CORS
 app.use(helmet());
 app.use(express.json({ limit: '50mb' }));
 
@@ -40,7 +40,9 @@ const writeFile = async (file, data) => {
     await fsPromises.writeFile(file, JSON.stringify(data, null, 2));
 };
 
+// --- 4. CẤU HÌNH GỬI MAIL (Đã đổi sang Port 587 để fix lỗi Timeout) ---
 const JWT_SECRET = process.env.JWT_SECRET || "Mat_Khau_Bi_Mat_Tam_Thoi_123";
+
 const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 587,              // Dùng cổng 587 (TLS) thay vì 465 (SSL)
@@ -50,27 +52,29 @@ const transporter = nodemailer.createTransport({
         pass: process.env.EMAIL_PASS
     },
     tls: {
-        rejectUnauthorized: false // Bỏ qua lỗi chứng chỉ nếu có (giúp kết nối dễ hơn)
+        rejectUnauthorized: false // Giúp kết nối dễ hơn trên Cloud
     }
 });
 
 const sendOTP = async (email, otp) => {
     try {
         if (!process.env.EMAIL_USER) throw new Error("Chưa cấu hình mail");
+        
         await transporter.sendMail({
             from: '"NewsDaily" <noreply@newsdaily.com>',
             to: email,
             subject: 'Mã xác thực OTP',
             text: `Mã OTP của bạn là: ${otp}. Mã có hiệu lực trong 10 phút.`
         });
+        console.log(`✅ Đã gửi mail OTP đến ${email}`);
         return { success: true };
     } catch (e) {
-    console.error("❌ LỖI GỬI MAIL CHI TIẾT:", e); // <--- In lỗi chi tiết ra
-    return { success: false, otp: otp };
+        console.error("❌ LỖI GỬI MAIL CHI TIẾT:", e); // In lỗi ra Logs để debug
+        return { success: false, otp: otp };
     }
 };
 
-// --- 4. MIDDLEWARE ---
+// --- 5. MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -91,7 +95,7 @@ const requireAdmin = (req, res, next) => {
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
 app.use('/api', limiter);
 
-// --- 5. ROUTES ---
+// --- 6. ROUTES ---
 
 // Health Check
 app.get('/', (req, res) => res.send("✅ Server NewsDaily đang chạy ổn định!"));
@@ -103,7 +107,6 @@ app.post('/api/auth/login', async (req, res) => {
         const users = await readFile(USERS_FILE);
         const u = users.find(x => x.email === email);
         if (!u) return res.status(400).json({ message: "Email chưa đăng ký" });
-        // if (!u.isVerified) return res.status(400).json({ message: "Tài khoản chưa xác thực" });
 
         const isMatch = await bcrypt.compare(password, u.password);
         if (!isMatch) return res.status(400).json({ message: "Sai mật khẩu" });
@@ -132,8 +135,10 @@ app.post('/api/auth/register', async (req, res) => {
         users.push(newUser);
         await writeFile(USERS_FILE, users);
         
-        const r = await sendOTP(email, otp);
-        res.json(r.success ? { message: "Đã gửi OTP xác thực qua email" } : { message: "Lỗi gửi mail (Dev Mode)", devOtp: otp });
+        // Gửi mail kiểu Fire-and-Forget (Không chờ) để App nhanh
+        sendOTP(email, otp).catch(err => console.error("Lỗi gửi mail ngầm:", err));
+        
+        res.json({ message: "Đăng ký thành công! Đang gửi OTP..." });
     } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
 });
 
@@ -161,21 +166,23 @@ app.post('/api/auth/check-otp', async (req, res) => {
     } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
 });
 
-// ROUTE QUAN TRỌNG: Gửi lại OTP / Quên mật khẩu
+// ROUTE: Gửi lại OTP / Quên mật khẩu (Fire-and-Forget)
 app.post('/api/auth/forgot-password', async (req, res) => {
     try {
         const { email } = req.body;
         const users = await readFile(USERS_FILE);
         const u = users.find(x => x.email === email);
-        if (!u) return res.status(404).json({ message: "Email không tồn tại trong hệ thống" });
+        if (!u) return res.status(404).json({ message: "Email không tồn tại" });
 
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         u.otp = otp;
         u.otpExpires = Date.now() + 600000;
         await writeFile(USERS_FILE, users);
 
-        const r = await sendOTP(email, otp);
-        res.json(r.success ? { message: "Đã gửi OTP qua email" } : { message: "Lỗi gửi mail", devOtp: otp });
+        // Gửi mail không chờ
+        sendOTP(email, otp).catch(err => console.error("Lỗi gửi mail ngầm:", err));
+        
+        res.json({ message: "Đã gửi lại OTP" });
     } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
 });
 
@@ -211,6 +218,18 @@ app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
 });
 
+app.put('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const users = await readFile(USERS_FILE);
+        const idx = users.findIndex(u => u.id == req.params.id);
+        if (idx === -1) return res.status(404).json({ message: "Not found" });
+        const { name, role, phone, address, dob, gender } = req.body;
+        users[idx] = { ...users[idx], name, role, phone, address, dob, gender };
+        await writeFile(USERS_FILE, users);
+        res.json({ message: "Đã cập nhật" });
+    } catch (e) { res.status(500).json({ message: "Lỗi" }); }
+});
+
 app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
         let users = await readFile(USERS_FILE);
@@ -220,7 +239,6 @@ app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) =
     } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
 });
 
-// User Profile Updates
 app.put('/api/user/update-profile', authenticateToken, async (req, res) => {
     try {
         const users = await readFile(USERS_FILE);
@@ -249,8 +267,8 @@ app.post('/api/user/request-otp', authenticateToken, async (req, res) => {
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         u.otp = otp;
         await writeFile(USERS_FILE, users);
-        const r = await sendOTP(u.email, otp);
-        res.json(r.success ? { message: "Đã gửi OTP" } : { message: "Lỗi mail", devOtp: otp });
+        sendOTP(u.email, otp).catch(e => console.error("Lỗi mail:", e));
+        res.json({ message: "Đã gửi OTP" });
     } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
 });
 
@@ -264,6 +282,30 @@ app.put('/api/user/change-password-otp', authenticateToken, async (req, res) => 
         u.otp = undefined;
         await writeFile(USERS_FILE, users);
         res.json({ message: "Đổi mật khẩu thành công" });
+    } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
+});
+
+app.put('/api/user/security-code', authenticateToken, async (req, res) => {
+    try {
+        const { securityCode } = req.body;
+        if (!securityCode || securityCode.length < 4) return res.status(400).json({ message: "Mã bảo vệ phải từ 4 ký tự" });
+        const users = await readFile(USERS_FILE);
+        const index = users.findIndex(u => u.id === req.user.id);
+        users[index].securityCode = await bcrypt.hash(securityCode, 10);
+        await writeFile(USERS_FILE, users);
+        res.json({ message: "Đã lưu mã bảo vệ" });
+    } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
+});
+
+app.post('/api/user/verify-security', authenticateToken, async (req, res) => {
+    try {
+        const { securityCode } = req.body;
+        const users = await readFile(USERS_FILE);
+        const user = users.find(u => u.id === req.user.id);
+        if (!user.securityCode) return res.status(400).json({ message: "Chưa thiết lập mã bảo vệ" });
+        const isMatch = await bcrypt.compare(securityCode, user.securityCode);
+        if (!isMatch) return res.status(400).json({ message: "Mã bảo vệ không đúng" });
+        res.json({ message: "Xác thực thành công" });
     } catch (e) { res.status(500).json({ message: "Lỗi Server" }); }
 });
 
@@ -309,13 +351,7 @@ app.delete('/api/posts/:id', authenticateToken, requireAdmin, async (req, res) =
     } catch { res.status(500).json({ message: "Lỗi" }); }
 });
 
-// --- 6. KHỞI ĐỘNG SERVER AN TOÀN (Async Startup) ---
-// Dữ liệu mẫu (Tóm tắt để code ngắn, nhưng bạn đã có đủ)
-const SAMPLE_POSTS = [
-    { id: 1, title: "Chàng trai 9x bỏ phố về quê", category: "Sống Xanh", image: "https://images.unsplash.com/photo-1592595896551-12b371d546d5?auto=format&fit=crop&w=800&q=80", author: "Thu Hà", date: "24/11/2024", views: 2450, summary: "Tóm tắt...", content: "Nội dung..." },
-    { id: 2, title: "Du lịch chữa lành", category: "Du Lịch", image: "https://images.unsplash.com/photo-1504214208698-ea1916a2195a?auto=format&fit=crop&w=800&q=80", author: "Việt Travel", date: "23/11/2024", views: 1890, summary: "Tóm tắt...", content: "Nội dung..." }
-];
-
+// --- 7. KHỞI ĐỘNG SERVER AN TOÀN (Async Startup - Fix Crash) ---
 const startServer = async () => {
     console.log("🚀 Đang khởi động Server...");
 
@@ -334,8 +370,12 @@ const startServer = async () => {
         console.log("✅ Đã tạo Admin mặc định");
     }
 
-    // 3. Tạo Bài viết mẫu
+    // 3. Tạo Bài viết mẫu (Nếu file chưa có)
     if (!fs.existsSync(POSTS_FILE)) {
+        const SAMPLE_POSTS = [
+            { id: 1, title: "Chàng trai 9x bỏ phố về quê", category: "Sống Xanh", image: "https://images.unsplash.com/photo-1592595896551-12b371d546d5?auto=format&fit=crop&w=800&q=80", author: "Thu Hà", date: "24/11/2024", views: 2450, summary: "Tóm tắt...", content: "Nội dung..." },
+            // (Thêm các bài mẫu khác nếu muốn)
+        ];
         await writeFile(POSTS_FILE, SAMPLE_POSTS);
         console.log("✅ Đã tạo bài viết mẫu");
     }
