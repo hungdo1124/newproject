@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 // --- CẤU HÌNH ---
 const USE_MOCK_API = false; 
-axios.get(import.meta.env.VITE_API_URL + '/api/users')
+const API_URL = import.meta.env.VITE_API_URL;
 const CATEGORIES = ['Sống Xanh', 'Du Lịch', 'Ẩm Thực', 'Sức Khỏe', 'Công Nghệ', 'Văn Hóa'];
 
 const FALLBACK_POSTS = [{ id: 1, title: "Đang tải...", category: "Tin tức", image: "", author: "System", date: "...", summary: "Vui lòng đợi...", content: "..." }];
