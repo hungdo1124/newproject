@@ -42,8 +42,16 @@ const writeFile = async (file, data) => {
 
 const JWT_SECRET = process.env.JWT_SECRET || "Mat_Khau_Bi_Mat_Tam_Thoi_123";
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+    host: "smtp.gmail.com",
+    port: 587,              // Dùng cổng 587 (TLS) thay vì 465 (SSL)
+    secure: false,          // Phải để false khi dùng port 587
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    },
+    tls: {
+        rejectUnauthorized: false // Bỏ qua lỗi chứng chỉ nếu có (giúp kết nối dễ hơn)
+    }
 });
 
 const sendOTP = async (email, otp) => {
