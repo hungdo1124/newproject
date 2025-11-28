@@ -45,15 +45,14 @@ const JWT_SECRET = process.env.JWT_SECRET || "Mat_Khau_Bi_Mat_Tam_Thoi_123";
 
 const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
-    port: 587,              // Dùng cổng 587 (TLS) thay vì 465 (SSL)
-    secure: false,          // Phải để false khi dùng port 587
+    port: 465,              // Dùng cổng 465 (SSL)
+    secure: true,           // Bắt buộc để TRUE khi dùng port 465
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
     },
-    tls: {
-        rejectUnauthorized: false // Giúp kết nối dễ hơn trên Cloud
-    }
+    // Thêm dòng này để server ưu tiên dùng IPv4 (tránh lỗi IPv6 gây timeout)
+    family: 4 
 });
 
 const sendOTP = async (email, otp) => {
