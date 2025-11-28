@@ -12,7 +12,7 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
+app.set('trust proxy', 1);
 // --- QUAN TRỌNG: CẤU HÌNH CORS VÀ JSON LÊN ĐẦU TIÊN ---
 // Để tránh lỗi chặn kết nối và lỗi không đọc được body
 app.use(cors()); 
